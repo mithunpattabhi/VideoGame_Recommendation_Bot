@@ -8,8 +8,15 @@ from app_backend.models import User, UserPreference, LikedGame, WishlistGame
 from app_backend.security import hash_password, verify_password
 from app_backend.schemas import RegisterRequest, LoginRequest, PreferenceRequest
 from sklearn.metrics.pairwise import cosine_similarity
-
+import requests
 from recommender.loader import get_recommender
+from difflib import get_close_matches
+import pandas as pd
+from pydantic import BaseModel
+import json
+
+
+
 def normalize(text):
     text = text.lower()
 
@@ -39,6 +46,26 @@ print("BACKEND RUNNING CLEAN")
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
+
+df= pd.read_csv("data/steam_clean.csv")
+df["Name"] = df["Name"].astype(str)
+OLLAMA_MODEL = "llama3"
+
+def ask_llm(prompt: str):
+    try:
+        response = requests.post(
+            "http://localhost:11434/api/generate",
+            json={
+                "model": OLLAMA_MODEL,
+                "prompt": prompt,
+                "stream": False
+            },
+            timeout=120
+        )
+        return response.json()["response"]
+    except Exception as e:
+        return "LLM connection error."
+    
 
 app.add_middleware(
     CORSMiddleware,
@@ -211,73 +238,125 @@ import re
 
 from sklearn.metrics.pairwise import cosine_similarity
 
+import requests
+
+def ask_llm(prompt: str):
+    response = requests.post(
+        "http://localhost:11434/api/generate",
+        json={
+            "model": OLLAMA_MODEL,
+            "prompt": prompt,
+            "stream": False
+        },
+        timeout=120
+    )
+    return response.json()["response"]
+
+
+
+last_recommended_app_id = None
+last_recommendations_given = set()
+
+
+def ask_llm(prompt: str):
+    response = requests.post(
+        "http://localhost:11434/api/generate",
+        json={
+            "model": OLLAMA_MODEL,
+            "prompt": prompt,
+            "stream": False
+        },
+        timeout=120
+    )
+    return response.json()["response"].strip()
+
+class ChatRequest(BaseModel):
+    message: str
+
+def smart_match(title):
+    words = re.split(r"\W+", title.lower())
+
+    condition = df["Name"].str.lower().apply(
+        lambda x: all(word in x for word in words if len(word) > 2)
+    )
+
+    return df[condition]
+
 @app.post("/chat")
 def chat(request: ChatRequest):
 
-    message = request.message.strip()
+    user_message = request.message.strip()
 
-    if not message:
-        return {"response": "Hey 👋 What would you like to talk about?"}
+    if not user_message:
+        return {"games": []}
 
-    normalized_message = normalize(message)
-    message_tokens = set(normalized_message.split())
+    prompt = f"""
+    You are a video game recommendation engine.
 
-    # -----------------------------------
-    # STRICT GAME DETECTION
-    # -----------------------------------
+    Understand abbreviations:
+    - GTA 5 = Grand Theft Auto V
+    - RDR2 = Red Dead Redemption 2
 
-    best_match = None
-    best_score = 0
-    best_index = None
+    User request:
+    "{user_message}"
 
-    for idx, row in recommender.df.iterrows():
-        game_tokens = set(row["normalized_name"].split())
-        overlap = len(message_tokens & game_tokens)
+    Return ONLY a JSON array.
+    Return 5 FULL standalone game titles.
+    No DLC.
+    No expansions.
+    No remasters.
 
-        if overlap > best_score:
-            best_score = overlap
-            best_match = row
-            best_index = idx
-
-    if best_score < 2:
-        return {
-            "response": "I couldn't clearly detect the game name. Try typing it more precisely."
-        }
-
-    game_name = best_match["Name"]
-    app_id = int(best_match["AppID"])
-
-    # -----------------------------------
-    # STRICT SIMILARITY FOR CHAT ONLY
-    # -----------------------------------
-
-    similarity_scores = cosine_similarity(
-        recommender.tfidf_matrix[best_index],
-        recommender.tfidf_matrix
-    ).flatten()
-
-    recommender.df["chat_similarity"] = similarity_scores
-
-    rec_df = recommender.df[
-        recommender.df["AppID"] != app_id
+    Format strictly:
+    [
+      {{"name": "Game Title 1"}},
+      {{"name": "Game Title 2"}},
+      {{"name": "Game Title 3"}},
+      {{"name": "Game Title 4"}},
+      {{"name": "Game Title 5"}}
     ]
+    """
 
-    rec_df = rec_df[rec_df["chat_similarity"] > 0.15]
+    try:
+        response = requests.post(
+            "http://127.0.0.1:11434/api/generate",
+            json={
+                "model": "llama3",
+                "prompt": prompt,
+                "stream": False
+            },
+            timeout=120
+        )
 
-    rec_df = rec_df.sort_values(
-        "chat_similarity",
-        ascending=False
-    ).head(5)
+        raw_output = response.json()["response"].strip()
 
-    if rec_df.empty:
-        return {
-            "response": f"I couldn't find strong similar games to {game_name}."
-        }
+        start = raw_output.find("[")
+        end = raw_output.rfind("]") + 1
 
-    response_text = f"If you liked {game_name}, you might enjoy:\n\n"
+        if start == -1 or end == -1:
+            return {"games": []}
 
-    for _, row in rec_df.iterrows():
-        response_text += f"• {row['Name']}\n"
+        recommended = json.loads(raw_output[start:end])
 
-    return {"response": response_text}
-    
+        matched_games = []
+
+        for item in recommended:
+            title = item["name"].strip()
+
+            match = df[df["Name"].str.contains(title, case=False, na=False)]
+
+            if not match.empty:
+                row = match.iloc[0]
+                app_id = int(row["AppID"])
+
+                matched_games.append({
+                    "appid": app_id,
+                    "name": row["Name"],
+                    "header_image": f"https://cdn.cloudflare.steamstatic.com/steam/apps/{app_id}/header.jpg",
+                    "short_description": row["combined_text"][:200]  # use combined_text as summary
+                })
+
+        return {"games": matched_games}
+
+    except Exception as e:
+        print("CHAT ERROR:", e)
+        return {"games": []}
