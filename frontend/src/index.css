@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply text-white antialiased;
+  background: radial-gradient(circle at 20% 20%, #1e3a8a 0%, transparent 40%),
+              radial-gradient(circle at 80% 30%, #7c3aed 0%, transparent 40%),
+              radial-gradient(circle at 50% 80%, #0f172a 0%, #020617 80%);
+  background-attachment: fixed;
+  min-height: 100vh;
+}
+
+/* Soft animated glow */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: linear-gradient(120deg, #3b82f6, #8b5cf6, #0ea5e9);
+  opacity: 0.08;
+  filter: blur(120px);
+  animation: moveGlow 12s ease-in-out infinite alternate;
+  z-index: -1;
+}
+
+@keyframes moveGlow {
+  0% { transform: translateX(-5%) translateY(-5%); }
+  100% { transform: translateX(5%) translateY(5%); }
+}
+
+@keyframes gradientMove {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 100% 50%; }
+}
+
+.animate-gradient {
+  animation: gradientMove 6s linear infinite alternate;
+}
