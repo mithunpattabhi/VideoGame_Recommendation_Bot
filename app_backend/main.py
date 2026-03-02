@@ -14,6 +14,13 @@ from difflib import get_close_matches
 import pandas as pd
 from pydantic import BaseModel
 import json
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
 last_recommended_titles=[]
 
 
@@ -52,19 +59,29 @@ df["Name"] = df["Name"].astype(str)
 OLLAMA_MODEL = "llama3"
 
 def ask_llm(prompt: str):
-    try:
-        response = requests.post(
-            "http://localhost:11434/api/generate",
-            json={
-                "model": OLLAMA_MODEL,
-                "prompt": prompt,
-                "stream": False
-            },
-            timeout=120
-        )
-        return response.json()["response"]
-    except Exception as e:
-        return "LLM connection error."
+
+    response = requests.post(
+        "https://api.groq.com/openai/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json"
+        },
+        json={
+            "model": "llama-3.1-8b-instant",
+            "messages": [
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.7
+        },
+        timeout=60
+    )
+
+    data = response.json()
+
+    if "choices" not in data:
+        return "LLM error"
+
+    return data["choices"][0]["message"]["content"]
     
 
 app.add_middleware(
@@ -240,35 +257,6 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 import requests
 
-def ask_llm(prompt: str):
-    response = requests.post(
-        "http://localhost:11434/api/generate",
-        json={
-            "model": OLLAMA_MODEL,
-            "prompt": prompt,
-            "stream": False
-        },
-        timeout=120
-    )
-    return response.json()["response"]
-
-
-
-last_recommended_app_id = None
-last_recommendations_given = set()
-
-
-def ask_llm(prompt: str):
-    response = requests.post(
-        "http://localhost:11434/api/generate",
-        json={
-            "model": OLLAMA_MODEL,
-            "prompt": prompt,
-            "stream": False
-        },
-        timeout=120
-    )
-    return response.json()["response"].strip()
 
 class ChatRequest(BaseModel):
     message: str
@@ -342,17 +330,8 @@ def chat(request: ChatRequest):
             "short_description": ""
         }
     try:
-        response = requests.post(
-            "http://127.0.0.1:11434/api/generate",
-            json={
-                "model": "llama3",
-                "prompt": prompt,
-                "stream": False
-            },
-            timeout=120
-        )
-
-        raw_output = response.json()["response"].strip()
+        
+        raw_output = ask_llm(prompt)
 
         start = raw_output.find("[")
         end = raw_output.rfind("]") + 1
