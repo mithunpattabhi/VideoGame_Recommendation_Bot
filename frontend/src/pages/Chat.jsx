@@ -15,7 +15,6 @@ export default function Chat() {
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
     setLoading(true);
-    setGames([]);
 
     try {
       const res = await fetch("http://127.0.0.1:8000/chat", {
@@ -25,14 +24,17 @@ export default function Chat() {
       });
 
       const data = await res.json();
-
-      if (data.games && data.games.length > 0) {
+       if (data.games && data.games.length > 0) {
         setMessages((prev) => [
-    ...prev,
-    { sender: "bot", text: "Here are some recommendations for you:" },
-      ]);
-        setGames(data.games);
-      } else {
+          ...prev,
+          {
+            sender: "bot",
+            type: "games",
+            games: data.games,
+          },
+        ]);
+      }
+       else {
         setMessages((prev) => [
           ...prev,
           { sender: "bot", text: "Couldn't find matching games." },
@@ -48,10 +50,28 @@ export default function Chat() {
     setLoading(false);
   };
 
-  const addToWishlist = (game) => {
-    // you can connect this to your real wishlist API
-    console.log("Added to wishlist:", game.name);
-  };
+ const addToWishlist = async (game) => {
+  try {
+    const userId = localStorage.getItem("user_id");
+
+    const res = await fetch("http://127.0.0.1:8000/wishlist/add", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        user_id: parseInt(userId),
+        app_id: game.appid,
+      }),
+    });
+
+    const data = await res.json();
+
+    alert(data.message);
+  } catch (error) {
+    alert("Failed to add to wishlist");
+  }
+};
 
   return (
     <motion.div
@@ -66,21 +86,77 @@ export default function Chat() {
 
         <div className="max-w-5xl mx-auto px-6 py-12 flex flex-col h-[80vh]">
 
-          {/* Chat Messages */}
+          
           <div className="flex-1 overflow-y-auto space-y-4">
 
-            {messages.map((msg, index) => (
-              <div
-                key={index}
-                className={`p-4 rounded-xl max-w-lg ${
-                  msg.sender === "user"
-                    ? "bg-purple-600 ml-auto"
-                    : "bg-gray-800"
-                }`}
-              >
-                {msg.text}
+            {messages.map((msg, index) => {
+
+  if (msg.type === "games") {
+    return (
+      <div key={index}>
+        <div className="bg-gray-800 p-4 rounded-xl max-w-lg mb-4">
+          Here are some recommendations for you:
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {msg.games.map((game, i) => (
+            <div
+              key={i}
+              className="bg-gray-900 rounded-xl overflow-hidden shadow-lg"
+            >
+              <img
+                src={game.header_image}
+                alt={game.name}
+                className="w-full h-60 object-cover"
+              />
+
+              <div className="p-4">
+                <h3 className="text-xl font-semibold">
+                  {game.name}
+                </h3>
+
+                <p className="text-sm text-gray-400 mt-2">
+                  {game.short_description?.slice(0, 180)}...
+                </p>
+
+                <div className="flex justify-between items-center mt-4">
+                  <a
+                    href={`https://store.steampowered.com/app/${game.appid}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-purple-400 hover:underline"
+                  >
+                    View on Steam
+                  </a>
+
+                  <button
+                    onClick={() => addToWishlist(game)}
+                    className="bg-purple-600 px-4 py-2 rounded-lg"
+                  >
+                    Add to Wishlist
+                  </button>
+                </div>
               </div>
-            ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      key={index}
+      className={`p-4 rounded-xl max-w-lg ${
+        msg.sender === "user"
+          ? "bg-purple-600 ml-auto"
+          : "bg-gray-800"
+      }`}
+    >
+      {msg.text}
+    </div>
+  );
+})}
 
             {loading && (
               <div className="bg-gray-800 p-4 rounded-xl max-w-lg">
@@ -88,7 +164,7 @@ export default function Chat() {
               </div>
             )}
 
-            {/* GAME CARDS */}
+            
             {games.length > 0 && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
                 {games.map((game, index) => (
@@ -136,7 +212,7 @@ export default function Chat() {
 
           </div>
 
-          {/* Input */}
+          
           <div className="flex mt-6">
             <input
               value={input}

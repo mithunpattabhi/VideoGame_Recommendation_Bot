@@ -14,7 +14,7 @@ from difflib import get_close_matches
 import pandas as pd
 from pydantic import BaseModel
 import json
-
+last_recommended_titles=[]
 
 
 def normalize(text):
@@ -289,14 +289,19 @@ def chat(request: ChatRequest):
 
     if not user_message:
         return {"games": []}
-
+    global last_recommended_titles
+    if any(word in user_message.lower() for word in ["more like", "similar to", "recommend more", "another one like"]):
+        context = f"Previous recommendations were: {', '.join(last_recommended_titles)}"
+    else:
+        context = ""
+    
     prompt = f"""
     You are a video game recommendation engine.
 
     Understand abbreviations:
     - GTA 5 = Grand Theft Auto V
     - RDR2 = Red Dead Redemption 2
-
+    {context}
     User request:
     "{user_message}"
 
@@ -305,6 +310,8 @@ def chat(request: ChatRequest):
     No DLC.
     No expansions.
     No remasters.
+
+    If the user asks for more, suggest DIFFERENT games but similar to previous ones.
 
     Format strictly:
     [
@@ -315,7 +322,25 @@ def chat(request: ChatRequest):
       {{"name": "Game Title 5"}}
     ]
     """
+    def get_steam_details(app_id):
+        try:
+            url = f"https://store.steampowered.com/api/appdetails?appids={app_id}"
+            response = requests.get(url, timeout=10)
+            data = response.json()
 
+            if data[str(app_id)]["success"]:
+                game_data = data[str(app_id)]["data"]
+
+                return {
+                    "short_description": game_data.get("short_description", "")
+                }
+
+        except Exception as e:
+            print("Steam API error:", e)
+
+        return {
+            "short_description": ""
+        }
     try:
         response = requests.post(
             "http://127.0.0.1:11434/api/generate",
@@ -336,9 +361,10 @@ def chat(request: ChatRequest):
             return {"games": []}
 
         recommended = json.loads(raw_output[start:end])
+        last_recommended_titles = [item["name"] for item in recommended]
 
         matched_games = []
-
+        
         for item in recommended:
             title = item["name"].strip()
 
@@ -347,12 +373,12 @@ def chat(request: ChatRequest):
             if not match.empty:
                 row = match.iloc[0]
                 app_id = int(row["AppID"])
-
+                steam_info = get_steam_details(app_id)
                 matched_games.append({
                     "appid": app_id,
                     "name": row["Name"],
                     "header_image": f"https://cdn.cloudflare.steamstatic.com/steam/apps/{app_id}/header.jpg",
-                    "short_description": row["combined_text"][:200]  # use combined_text as summary
+                    "short_description": steam_info["short_description"]
                 })
 
         return {"games": matched_games}
