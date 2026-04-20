@@ -131,6 +131,8 @@ class GameRecommender:
             )
 
             results_df = pd.concat([top_part, diverse_part])
+            
+            results_df = results_df.sample(frac=1).reset_index(drop=True)
 
         return self._format(results_df.head(top_n))
 
