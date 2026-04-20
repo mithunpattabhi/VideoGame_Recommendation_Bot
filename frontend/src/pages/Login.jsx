@@ -25,6 +25,7 @@ export default function Login() {
       if (res.ok) {
         localStorage.setItem("user_id", data.user_id);
         localStorage.setItem("name", data.name);
+        login(data.access_token, data.name);
         navigate("/dashboard");
       } else {
         alert(data.detail);

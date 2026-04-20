@@ -1,10 +1,15 @@
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
+import os
+from fastapi import HTTPException
+from fastapi.security import OAuth2PasswordBearer
 
-SECRET_KEY = "super-secret-key-change-this"
+SECRET_KEY = os.getenv("SECRET_KEY", "super-secret-key-change-this")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = 24
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -26,3 +31,10 @@ def create_access_token(data: dict):
 
 def decode_token(token: str):
     return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+
+
+def verify_token(token: str):
+    try:
+        return decode_token(token)
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")

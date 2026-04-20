@@ -5,7 +5,7 @@ import re
 from app_backend.database import SessionLocal, engine
 from app_backend import models
 from app_backend.models import User, UserPreference, LikedGame, WishlistGame
-from app_backend.security import hash_password, verify_password
+from app_backend.security import hash_password, verify_password, create_access_token, oauth2_scheme, verify_token
 from app_backend.schemas import RegisterRequest, LoginRequest, PreferenceRequest
 from sklearn.metrics.pairwise import cosine_similarity
 import requests
@@ -88,7 +88,7 @@ def ask_llm(prompt: str):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=["http://localhost:5173", "https://your-frontend-domain.com"],  # Update with your production frontend URL
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -103,6 +103,15 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    payload = verify_token(token)
+    user_id = int(payload.get("sub"))
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    return user
 
 @app.post("/register")
 def register(request: RegisterRequest, db: Session = Depends(get_db)):
@@ -131,8 +140,11 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
     if not user or not verify_password(request.password, user.password_hash):
         raise HTTPException(status_code=400, detail="Invalid credentials")
 
+    access_token = create_access_token(data={"sub": str(user.id)})
+
     return {
-        "message": "Login successful",
+        "access_token": access_token,
+        "token_type": "bearer",
         "user_id": user.id,
         "name": user.name
     }
@@ -158,6 +170,7 @@ def search_game(query: str):
 @app.post("/recommend")
 def recommend(
     request: PreferenceRequest,
+    user: User = Depends(get_current_user),
     page: int = 1,
     limit: int = 12,
     db: Session = Depends(get_db)
@@ -183,30 +196,29 @@ def recommend(
 from pydantic import BaseModel
 
 class WishlistAddRequest(BaseModel):
-    user_id: int
     app_id: int
 
 
 @app.post("/wishlist/add")
-def add_to_wishlist(request: WishlistAddRequest, db: Session = Depends(get_db)):
+def add_to_wishlist(request: WishlistAddRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
 
     if db.query(WishlistGame).filter(
-        WishlistGame.user_id == request.user_id,
+        WishlistGame.user_id == user.id,
         WishlistGame.app_id == request.app_id
     ).first():
         return {"message": "Already in wishlist"}
 
-    db.add(WishlistGame(user_id=request.user_id, app_id=request.app_id))
+    db.add(WishlistGame(user_id=user.id, app_id=request.app_id))
     db.commit()
 
     return {"message": "Added to wishlist"}
 
 
 @app.get("/wishlist")
-def get_wishlist(user_id: int, db: Session = Depends(get_db)):
+def get_wishlist(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
 
     items = db.query(WishlistGame).filter(
-        WishlistGame.user_id == user_id
+        WishlistGame.user_id == user.id
     ).all()
 
     app_ids = [item.app_id for item in items]
@@ -230,15 +242,14 @@ def get_wishlist(user_id: int, db: Session = Depends(get_db)):
 from pydantic import BaseModel
 
 class WishlistRemoveRequest(BaseModel):
-    user_id: int
     app_id: int
 
 
 @app.post("/wishlist/remove")
-def remove_from_wishlist(request: WishlistRemoveRequest, db: Session = Depends(get_db)):
+def remove_from_wishlist(request: WishlistRemoveRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
 
     db.query(WishlistGame).filter(
-        WishlistGame.user_id == request.user_id,
+        WishlistGame.user_id == user.id,
         WishlistGame.app_id == request.app_id
     ).delete()
 

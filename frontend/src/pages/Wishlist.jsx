@@ -8,9 +8,13 @@ export default function Wishlist() {
 
   const fetchWishlist = async () => {
     try {
-      const userId = localStorage.getItem("user_id");
       const res = await fetch(
-        `http://127.0.0.1:8000/wishlist?user_id=${userId}`
+        `http://127.0.0.1:8000/wishlist`,
+        {
+          headers: {
+            "Authorization": `Bearer ${localStorage.getItem("token")}`,
+          },
+        }
       );
       const data = await res.json();
       setGames(data.results || []);
@@ -31,9 +35,9 @@ export default function Wishlist() {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "Authorization": `Bearer ${localStorage.getItem("token")}`,
       },
       body: JSON.stringify({
-        user_id: Number(userId),
         app_id: appId,
       }),
     });
