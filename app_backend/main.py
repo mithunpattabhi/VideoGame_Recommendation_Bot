@@ -21,7 +21,9 @@ load_dotenv()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-last_recommended_titles=[]
+last_recommended_titles = []
+last_original_request = ""
+all_recommended_games = set()
 
 
 def normalize(text):
@@ -277,29 +279,94 @@ def chat(request: ChatRequest):
 
     if not user_message:
         return {"games": []}
-    global last_recommended_titles
-    if any(word in user_message.lower() for word in ["more like", "similar to", "recommend more", "another one like"]):
-        context = f"Previous recommendations were: {', '.join(last_recommended_titles)}"
-    else:
-        context = ""
     
-    prompt = f"""
+    global last_recommended_titles, last_original_request, all_recommended_games
+    
+    recommendation_keywords = [
+        "recommend", "game", "fps", "action", "adventure", "rpg", "strategy",
+        "shooter", "racing", "puzzle", "sports", "indie", "horror", "fantasy",
+        "sci-fi", "sci fi", "simulation", "moba", "mmorpg", "like", "similar",
+        "more", "another", "suggest", "what", "which", "best", "top", "give me",
+        "show me", "find", "search", "looking for", "want", "need", "enjoy",
+        "prefer", "genre", "type of game", "keep it coming", "comin"
+    ]
+    
+    user_message_lower = user_message.lower()
+    
+    has_recommendation_keyword = any(keyword in user_message_lower for keyword in recommendation_keywords)
+    
+    is_continuation = (
+        any(word in user_message_lower for word in ["more", "another", "similar", "like that", "again", "keep", "comin"]) 
+        and len(last_recommended_titles) > 0
+    )
+    
+    is_recommendation_request = has_recommendation_keyword or is_continuation
+    
+    if not is_recommendation_request:
+        intent_prompt = f"""
+        Is the user asking for game recommendations or discussing games?
+        User message: "{user_message}"
+        
+        Answer with only "YES" or "NO".
+        YES if they want game recommendations, game suggestions, or talk about gaming preferences.
+        NO if they're just greeting, thanking, making small talk, or asking something unrelated to games.
+        """
+        intent = ask_llm(intent_prompt).strip().upper()
+        is_recommendation_request = "YES" in intent
+    
+    if not is_recommendation_request:
+        friendly_prompt = f"""
+        The user sent: "{user_message}"
+        
+        Respond in a friendly and helpful way. Remind them that you're here to recommend games.
+        Ask them what type of games they like or what game they want recommendations similar to.
+        Keep the response brief (1-2 sentences).
+        """
+        response_text = ask_llm(friendly_prompt)
+        return {"text": response_text}
+    
+    actual_request = user_message
+    
+    if is_continuation and last_original_request:
+        actual_request = last_original_request
+        print(f"Using original request context: {actual_request}")
+    else:
+        last_original_request = user_message
+        all_recommended_games = set()
+        print(f"New request saved: {actual_request}")
+    
+    context_parts = []
+    
+    if len(last_recommended_titles) > 0:
+        context_parts.append(f"Previous recommendations were: {', '.join(last_recommended_titles)}")
+    
+    if len(all_recommended_games) > 0:
+        games_to_avoid = ", ".join(list(all_recommended_games)[:20])
+        context_parts.append(f"Games already recommended (MUST NOT recommend these again): {games_to_avoid}")
+    
+    context = " ".join(context_parts)
+    
+    recommendation_prompt = f"""
     You are a video game recommendation engine.
 
     Understand abbreviations:
     - GTA 5 = Grand Theft Auto V
     - RDR2 = Red Dead Redemption 2
+    
     {context}
+    
     User request:
-    "{user_message}"
+    "{actual_request}"
 
-    Return ONLY a JSON array.
-    Return 5 FULL standalone game titles.
+    Return ONLY a JSON array with EXACTLY 5 games.
+    Return 5 FULL standalone game titles that actually exist.
     No DLC.
     No expansions.
     No remasters.
+    Each game must be a real, full game title.
+    NEVER recommend games from the "Games already recommended" list above.
 
-    If the user asks for more, suggest DIFFERENT games but similar to previous ones.
+    If the user is asking for more recommendations, suggest DIFFERENT games but STRICTLY same genre/type as the original request.
 
     Format strictly:
     [
@@ -310,6 +377,7 @@ def chat(request: ChatRequest):
       {{"name": "Game Title 5"}}
     ]
     """
+    
     def get_steam_details(app_id):
         try:
             url = f"https://store.steampowered.com/api/appdetails?appids={app_id}"
@@ -329,39 +397,70 @@ def chat(request: ChatRequest):
         return {
             "short_description": ""
         }
-    try:
+    
+    def find_game_in_df(title):
+        """Find a game in the dataframe with fuzzy matching"""
+        title = title.strip()
         
-        raw_output = ask_llm(prompt)
+        match = df[df["Name"].str.contains(title, case=False, na=False)]
+        if not match.empty:
+            return match.iloc[0]
+        
+        all_game_names = df["Name"].tolist()
+        close_matches = get_close_matches(title, all_game_names, n=1, cutoff=0.6)
+        
+        if close_matches:
+            best_match = close_matches[0]
+            match = df[df["Name"] == best_match]
+            if not match.empty:
+                return match.iloc[0]
+        
+        return None
+    
+    try:
+        raw_output = ask_llm(recommendation_prompt)
+        print(f"LLM Raw Output: {raw_output}")
 
         start = raw_output.find("[")
         end = raw_output.rfind("]") + 1
 
         if start == -1 or end == -1:
+            print("No JSON array found in LLM output")
             return {"games": []}
 
         recommended = json.loads(raw_output[start:end])
+        print(f"Parsed {len(recommended)} games from LLM")
+        
         last_recommended_titles = [item["name"] for item in recommended]
 
         matched_games = []
         
         for item in recommended:
             title = item["name"].strip()
-
-            match = df[df["Name"].str.contains(title, case=False, na=False)]
-
-            if not match.empty:
-                row = match.iloc[0]
-                app_id = int(row["AppID"])
+            print(f"Searching for: {title}")
+            
+            game_row = find_game_in_df(title)
+            
+            if game_row is not None:
+                app_id = int(game_row["AppID"])
                 steam_info = get_steam_details(app_id)
                 matched_games.append({
                     "appid": app_id,
-                    "name": row["Name"],
+                    "name": game_row["Name"],
                     "header_image": f"https://cdn.cloudflare.steamstatic.com/steam/apps/{app_id}/header.jpg",
                     "short_description": steam_info["short_description"]
                 })
+                all_recommended_games.add(game_row["Name"])
+                print(f"✓ Found match: {game_row['Name']}")
+            else:
+                print(f"✗ No match found for: {title}")
 
+        print(f"Returning {len(matched_games)} games")
+        print(f"Total games recommended so far: {all_recommended_games}")
         return {"games": matched_games}
 
     except Exception as e:
         print("CHAT ERROR:", e)
+        import traceback
+        traceback.print_exc()
         return {"games": []}

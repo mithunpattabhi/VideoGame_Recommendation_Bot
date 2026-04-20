@@ -19,6 +19,13 @@ export default function Register() {
     }
   };
 
+  const handleKeyPress = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleRegister();
+    }
+  };
+
   return (
      <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -42,12 +49,14 @@ export default function Register() {
         className="w-full p-3 mb-4 bg-black/30 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 transition"
         placeholder="Name"
         onChange={(e) => setForm({ ...form, name: e.target.value })}
+        onKeyPress={handleKeyPress}
       />
 
       <input
         className="w-full p-3 mb-4 bg-black/30 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 transition"
         placeholder="Email"
         onChange={(e) => setForm({ ...form, email: e.target.value })}
+        onKeyPress={handleKeyPress}
       />
 
       <input
@@ -55,6 +64,7 @@ export default function Register() {
         type="password"
         placeholder="Password"
         onChange={(e) => setForm({ ...form, password: e.target.value })}
+        onKeyPress={handleKeyPress}
       />
 
       <button

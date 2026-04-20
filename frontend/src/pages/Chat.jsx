@@ -24,7 +24,7 @@ export default function Chat() {
       });
 
       const data = await res.json();
-       if (data.games && data.games.length > 0) {
+      if (data.games && data.games.length > 0) {
         setMessages((prev) => [
           ...prev,
           {
@@ -33,8 +33,12 @@ export default function Chat() {
             games: data.games,
           },
         ]);
-      }
-       else {
+      } else if (data.text) {
+        setMessages((prev) => [
+          ...prev,
+          { sender: "bot", text: data.text },
+        ]);
+      } else {
         setMessages((prev) => [
           ...prev,
           { sender: "bot", text: "Couldn't find matching games." },
@@ -48,6 +52,13 @@ export default function Chat() {
     }
 
     setLoading(false);
+  };
+
+  const handleKeyPress = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
   };
 
  const addToWishlist = async (game) => {
@@ -217,6 +228,7 @@ export default function Chat() {
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
+              onKeyPress={handleKeyPress}
               placeholder="Ask for game recommendations..."
               className="flex-1 p-3 rounded-l-xl bg-gray-800 outline-none"
             />

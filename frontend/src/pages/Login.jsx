@@ -29,6 +29,13 @@ export default function Login() {
   }
 };
 
+  const handleKeyPress = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleLogin();
+    }
+  };
+
   return (
      <motion.div
         initial={{ opacity: 0, y: 20 }}
@@ -53,6 +60,7 @@ export default function Login() {
         className="w-full p-3 mb-4 bg-black/30 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 transition"
         placeholder="Email"
         onChange={(e) => setEmail(e.target.value)}
+        onKeyPress={handleKeyPress}
       />
 
       <input
@@ -60,6 +68,7 @@ export default function Login() {
         type="password"
         placeholder="Password"
         onChange={(e) => setPassword(e.target.value)}
+        onKeyPress={handleKeyPress}
       />
 
       <button
