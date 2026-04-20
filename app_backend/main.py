@@ -88,7 +88,7 @@ def ask_llm(prompt: str):
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "https://your-frontend-domain.com"],  # Update with your production frontend URL
+    allow_origins=["http://localhost:5173", "https://your-frontend-domain.com"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
